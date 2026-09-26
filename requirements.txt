@@ -1,0 +1,3 @@
+# Runtime uses only the standard library (http.server, json, threading, argparse).
+# The line below is the single development dependency used by the test suite.
+pytest>=9.0

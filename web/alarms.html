@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Alarms and audit</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f6f8; color: #1c1f24; }
+    table { border-collapse: collapse; width: 100%; background: #fff; margin-bottom: 1rem; }
+    th, td { border: 1px solid #d7dbe0; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+    form { background: #fff; padding: 1rem; border: 1px solid #d7dbe0; margin-bottom: 1rem; }
+    input, button { padding: 0.35rem 0.5rem; margin: 0.2rem; }
+    nav a { margin-right: 0.8rem; }
+    .alarm { color: #a3260b; }
+  </style>
+</head>
+<body>
+  <nav><a href="/pages/recipe">recipe</a><a href="/pages/batch">batch</a><a href="/pages/discharge">discharge</a><a href="/pages/alarms">alarms</a></nav>
+  <h1>Alarms and audit</h1>
+  <form id="note"><input name="name" value="shift.note"><input name="detail" value="checked"><button type="submit">note</button></form>
+  <form id="rollup"><button type="submit">production roll-up</button></form>
+  <form id="baseline"><input name="name" value="scale.factor"><input name="value" value="1.002"><input name="unit" value="x"><button type="submit">publish baseline</button></form>
+  <table id="alarms"><thead><tr><th>name</th><th>origin</th><th>tick</th></tr></thead><tbody></tbody></table>
+  <table id="audit"><thead><tr><th>name</th><th>origin</th><th>tick</th></tr></thead><tbody></tbody></table>
+  <script id="plant-state" type="application/json"><!--STATE--></script>
+  <script>
+    const state = JSON.parse(document.getElementById('plant-state').textContent || '{"alarms":[],"audit":[]}');
+    const alarms = document.querySelector('#alarms tbody');
+    for (const entry of state.alarms) {
+      const row = document.createElement('tr');
+      row.className = 'alarm';
+      row.innerHTML = `<td>${entry.name}</td><td>${entry.origin}</td><td>${entry.tick}</td>`;
+      alarms.appendChild(row);
+    }
+    const audit = document.querySelector('#audit tbody');
+    for (const entry of state.audit) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${entry.name}</td><td>${entry.origin}</td><td>${entry.tick}</td>`;
+      audit.appendChild(row);
+    }
+    async function post(path, form) {
+      const entries = form ? Object.fromEntries(new FormData(form).entries()) : {};
+      const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entries) });
+      return response.json();
+    }
+    const routes = { note: '/api/audit/note', rollup: '/api/audit/rollup', baseline: '/api/baseline' };
+    for (const [id, path] of Object.entries(routes)) {
+      document.getElementById(id).addEventListener('submit', async (event) => { event.preventDefault(); console.log(await post(path, event.target)); location.reload(); });
+    }
+  </script>
+</body>
+</html>

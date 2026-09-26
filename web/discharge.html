@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Discharge and delivery</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f6f8; color: #1c1f24; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #d7dbe0; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+    form { background: #fff; padding: 1rem; border: 1px solid #d7dbe0; margin-bottom: 1rem; }
+    input, button { padding: 0.35rem 0.5rem; margin: 0.2rem; }
+    nav a { margin-right: 0.8rem; }
+  </style>
+</head>
+<body>
+  <nav><a href="/pages/recipe">recipe</a><a href="/pages/batch">batch</a><a href="/pages/discharge">discharge</a><a href="/pages/alarms">alarms</a></nav>
+  <h1>Discharge and delivery</h1>
+  <form id="arrive"><input name="truck_id" value="T-01"><button type="submit">truck arrives</button></form>
+  <form id="open"><button type="submit">open door</button></form>
+  <form id="load"><input name="truck_id" value="T-01"><input name="volume_m3" value="6"><button type="submit">load</button></form>
+  <form id="confirm"><input name="truck_id" value="T-01"><input name="volume_m3" value="6"><button type="submit">confirm</button></form>
+  <form id="prime"><button type="submit">prime confirmed</button></form>
+  <form id="pump"><button type="submit">start pump</button></form>
+  <form id="stroke"><input name="volume_m3" value="0.32"><button type="submit">stroke</button></form>
+  <form id="pressure"><input name="reading_mpa" value="5.4"><button type="submit">pressure</button></form>
+  <form id="finish"><button type="submit">finish delivery</button></form>
+  <form id="draw"><input name="litres" value="12"><button type="submit">draw sample</button></form>
+  <form id="release"><button type="submit">release latch</button></form>
+  <form id="file"><input name="litres" value="12"><button type="submit">file sample</button></form>
+  <table id="queue"><thead><tr><th>waiting</th></tr></thead><tbody></tbody></table>
+  <script id="plant-state" type="application/json"><!--STATE--></script>
+  <script>
+    const state = JSON.parse(document.getElementById('plant-state').textContent || '{}');
+    const body = document.querySelector('#queue tbody');
+    for (const truck of (state.queue?.order || [])) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${truck}</td>`;
+      body.appendChild(row);
+    }
+    async function post(path, form) {
+      const entries = form ? Object.fromEntries(new FormData(form).entries()) : {};
+      const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entries) });
+      return response.json();
+    }
+    const routes = { arrive: '/api/chute/arrive', open: '/api/chute/open', load: '/api/chute/load', confirm: '/api/chute/confirm', prime: '/api/pump/prime', pump: '/api/pump/start', stroke: '/api/pump/stroke', pressure: '/api/pump/pressure', finish: '/api/pump/finish', draw: '/api/sampler/draw', release: '/api/sampler/release', file: '/api/sampler/file' };
+    for (const [id, path] of Object.entries(routes)) {
+      document.getElementById(id).addEventListener('submit', async (event) => { event.preventDefault(); console.log(await post(path, event.target)); location.reload(); });
+    }
+  </script>
+</body>
+</html>

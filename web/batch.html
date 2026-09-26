@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Batch control</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f6f8; color: #1c1f24; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #d7dbe0; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+    form { background: #fff; padding: 1rem; border: 1px solid #d7dbe0; margin-bottom: 1rem; }
+    input, button { padding: 0.35rem 0.5rem; margin: 0.2rem; }
+    nav a { margin-right: 0.8rem; }
+    .flag { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <nav><a href="/pages/recipe">recipe</a><a href="/pages/batch">batch</a><a href="/pages/discharge">discharge</a><a href="/pages/alarms">alarms</a></nav>
+  <h1>Batching</h1>
+  <form id="declare"><input name="batch_id" value="B-001"><input name="quantity" value="6"><button type="submit">declare</button></form>
+  <form id="map"><input name="bin" value="bin-1"><input name="material" value="sand"><button type="submit">map bin</button></form>
+  <form id="compensate"><input name="material" value="sand"><input name="moisture_percent" value="4.5"><input name="quantity" value="6"><button type="submit">compensate</button></form>
+  <form id="weigh"><input name="bin" value="bin-1"><input name="actual_kg" value="4800"><button type="submit">weigh</button></form>
+  <form id="persist"><button type="submit">persist weight</button></form>
+  <form id="check"><input name="actual_total_kg" value="12300"><button type="submit">dry check</button></form>
+  <form id="release"><input name="residual_kg" value="3"><button type="submit">release hopper</button></form>
+  <form id="drop"><button type="submit">drop</button></form>
+  <p>targets <span class="flag" id="targets"></span></p>
+  <table id="bins"><thead><tr><th>bin</th><th>material</th><th>target kg</th></tr></thead><tbody></tbody></table>
+  <script id="plant-state" type="application/json"><!--STATE--></script>
+  <script>
+    const state = JSON.parse(document.getElementById('plant-state').textContent || '{}');
+    const body = document.querySelector('#bins tbody');
+    const targets = (state.targets && state.targets.targets) || {};
+    document.getElementById('targets').textContent = JSON.stringify(targets);
+    for (const [bin, kg] of Object.entries(targets)) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${bin}</td><td>${(state.recipe.mapping?.assignments ?? {})[bin] ?? ''}</td><td>${kg}</td>`;
+      body.appendChild(row);
+    }
+    async function post(path, form) {
+      const entries = form ? Object.fromEntries(new FormData(form).entries()) : {};
+      const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entries) });
+      return response.json();
+    }
+    const routes = { declare: '/api/batch/declare', map: '/api/agg/map', compensate: '/api/moist/compensate', weigh: '/api/agg/weigh', persist: '/api/agg/persist', check: '/api/agg/check', release: '/api/agg/release', drop: '/api/agg/drop' };
+    for (const [id, path] of Object.entries(routes)) {
+      document.getElementById(id).addEventListener('submit', async (event) => { event.preventDefault(); console.log(await post(path, event.target)); location.reload(); });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "station": "plant-a",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "data_dir": "var/state",
+  "web_dir": "web",
+  "limits": {
+    "mix_time_ticks": 6,
+    "moisture_max_percent": 9.0,
+    "scale_tolerance_percent": 2.0,
+    "cement_flow_max_kgs": 42.0,
+    "water_flow_max_lps": 60.0,
+    "hopper_residual_max_kg": 12.0,
+    "pump_pressure_max_mpa": 8.0,
+    "prime_water_min_l": 40.0,
+    "sample_window_ticks": 8
+  },
+  "defaults": {
+    "baseline_ttl_ticks": 32,
+    "confirmation_ttl_ticks": 10,
+    "snapshot_ttl_ticks": 64
+  }
+}
