@@ -19,6 +19,12 @@ def register(router: Router, runtime: Any, pages: Any) -> None:
     )
     router.add("GET", "/api/health", lambda _: Response.json(runtime.health()))
     router.add("GET", "/api/state", lambda _: Response.json(runtime.state()))
+    router.add("GET", "/api/bus", lambda _: Response.json(runtime.bus_status()))
+    router.add(
+        "POST",
+        "/api/bus/replay",
+        lambda request: Response.json(runtime.dispatch("bus.replay", dict(request.body))),
+    )
     router.add("GET", "/api/plant", lambda _: Response.json(runtime.controller.manifest()))
     router.add("GET", "/api/diagnostics", lambda _: Response.json(runtime.controller.diagnostics()))
     router.add("GET", "/api/records", lambda request: Response.json(runtime.records(dict(request.query))))

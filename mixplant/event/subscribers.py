@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
+from ..store.records import Record
 from ..store.repository import RecordRepository
 from .bus import Event
 from .topics import ALARM
@@ -12,24 +13,48 @@ AUDIT_KIND = "audit.event"
 
 
 class AuditSubscriber:
-    """Copies every topic event into the record stream."""
+    """Copies every topic event into the record stream.
 
-    __slots__ = ("_repository", "_seen")
+    The copy is a durable side effect, so the handler is idempotent: an
+    event whose sequence is already in the stream is skipped, which keeps a
+    repeated replay from writing the same copy twice.
+    """
+
+    __slots__ = ("_repository", "_seen", "_copied")
 
     def __init__(self, repository: RecordRepository) -> None:
         self._repository = repository
         self._seen = 0
+        self._copied: set[int] = set()
 
     def __call__(self, event: Event) -> None:
         self.handle(event)
 
+    def hydrate(self, records: Iterable[Record]) -> None:
+        """Adopt the sequences a previous process already copied."""
+
+        for record in records:
+            seq = record.payload.get("event_seq")
+            if seq:
+                self._copied.add(int(seq))
+
     def handle(self, event: Event) -> None:
+        if event.seq and event.seq in self._copied:
+            return
         self._repository.publish(
             AUDIT_KIND,
             event.origin,
             int(event.payload.get("generation", 0) or 0),
-            {"topic": event.topic, "name": event.name, "origin": event.origin, "tick": event.tick},
+            {
+                "topic": event.topic,
+                "name": event.name,
+                "origin": event.origin,
+                "tick": event.tick,
+                "event_seq": event.seq,
+            },
         )
+        if event.seq:
+            self._copied.add(event.seq)
         self._seen += 1
 
     def seen(self) -> int:

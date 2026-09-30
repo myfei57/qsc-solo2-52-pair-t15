@@ -17,7 +17,8 @@ from .decision.stateview import StateView
 from .decision.thresholds import ThresholdSet
 from .errors import NotFoundError
 from .event.bus import Event, EventBus
-from .event.subscribers import AlarmCollector, AuditSubscriber
+from .event.delivery import ReplayMode, StoreDeliveryLog
+from .event.subscribers import AUDIT_KIND, AlarmCollector, AuditSubscriber
 from .event.topics import ALARM, STORE
 from .ids import SequenceIds
 from .interlocks import build_engine
@@ -82,7 +83,7 @@ class PlantRuntime:
         self.batches = BatchRegistry()
         self.engine = build_engine()
         self.gate = PreGate(self.engine)
-        self.bus = EventBus()
+        self.bus = EventBus(StoreDeliveryLog(self.store))
         self.topology = default_topology()
         self.registry = build_registry(self.topology, EXTRA_DEVICES)
         self.audit_subscriber = AuditSubscriber(self.store)
@@ -133,9 +134,12 @@ class PlantRuntime:
         return cls(storage="memory")
 
     def _wire_bus(self) -> None:
-        self.bus.subscribe(ALARM, self.alarms)
-        self.bus.subscribe(ALARM, self.audit.handle_alarm)
-        self.bus.subscribe_all(self.audit_subscriber)
+        # Every built-in subscriber keeps a temporal log of its own, so each
+        # one is caught up strictly in publish order; a sharded catch-up
+        # would let later entries overtake earlier ones on the same log.
+        self.bus.subscribe(ALARM, self.alarms, name="alarm-collector", mode=ReplayMode.SEQUENTIAL)
+        self.bus.subscribe(ALARM, self.audit.handle_alarm, name="audit-ledger", mode=ReplayMode.SEQUENTIAL)
+        self.bus.subscribe_all(self.audit_subscriber, name="audit-stream", mode=ReplayMode.SEQUENTIAL)
 
     def bootstrap(self) -> dict[str, Any]:
         """Rebuild every derived artifact from the stored stream."""
@@ -146,6 +150,7 @@ class PlantRuntime:
         self._restore_id_counters()
         self._adopt_records()
         self._hydrate_machines()
+        self.audit_subscriber.hydrate(self.store.history(AUDIT_KIND))
         self.store.publish(
             BOOT_KIND,
             "console",
@@ -157,7 +162,8 @@ class PlantRuntime:
                 "rejected_snapshots": [dict(item) for item in report.rejected_snapshots],
             },
         )
-        return report.describe()
+        recovery = self.bus.replay()
+        return {**report.describe(), "bus_recovery": recovery}
 
     def _restore_clock(self) -> int:
         """Continue the tick at the last one the stream recorded."""
@@ -253,6 +259,7 @@ class PlantRuntime:
             "visible": len(self.store.visible()),
             "batches": self.batches.count(),
             "alarms": self.alarms.count(),
+            "bus_pending": self.bus.pending_count(),
             "lines": {line: machine.phase for line, machine in self.machines.items()},
             "latched": {"sampler": self.sampler.latch.latched},
         }
@@ -283,9 +290,19 @@ class PlantRuntime:
             },
             batches=[batch.describe() for batch in self.batches.all()],
             alarms=self.alarms.recent(),
+            bus=self.bus.progress(),
             facts=self.view.facts(),
             config=self.config.describe(),
         )
+
+    def bus_status(self) -> dict[str, Any]:
+        """Return the delivery and replay position of every subscriber."""
+
+        return {
+            "events": self.bus.event_count(),
+            "pending": self.bus.pending_count(),
+            "subscribers": self.bus.progress(),
+        }
 
     def records(self, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Run the audit query the caller asked for."""
@@ -463,6 +480,9 @@ class PlantRuntime:
                 text(payload, "name"), self._detail(payload)
             ),
             "audit.rollup": lambda payload: self.audit.rollup(),
+            "bus.replay": lambda payload: self.bus.replay(
+                optional_text(payload, "subscriber", "") or None
+            ),
             "baseline.publish": lambda payload: self.publish_baseline(
                 text(payload, "name"),
                 number(payload, "value"),

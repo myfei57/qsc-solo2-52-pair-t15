@@ -17,6 +17,7 @@ def compose_plant_status(
     interlocks: Mapping[str, Any],
     batches: list[dict[str, Any]],
     alarms: list[dict[str, Any]],
+    bus: list[dict[str, Any]],
     facts: Mapping[str, bool],
     config: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -33,6 +34,7 @@ def compose_plant_status(
         "interlocks": dict(interlocks),
         "batches": list(batches),
         "alarms": list(alarms),
+        "bus": list(bus),
         "facts": dict(facts),
         "config": dict(config),
     }
