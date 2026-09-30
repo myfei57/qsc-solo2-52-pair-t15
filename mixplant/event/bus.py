@@ -13,19 +13,32 @@ Handler = Callable[["Event"], None]
 
 ALL = "*"
 
+# Replay policies a subscriber can choose.
+SEQUENTIAL = "sequential"
+SHARDED = "sharded"
+REPLAY_MODES = (SEQUENTIAL, SHARDED)
+
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """One notification raised by a service."""
+    """One notification raised by a service.
+
+    ``seq`` is the global, gapless order of the event once it is committed to
+    the outbox.  It is zero while the event is still in memory, which keeps
+    legacy callers working and lets a subscriber tell a live event from a
+    replayed one.
+    """
 
     topic: str
     name: str
     origin: str
     tick: int
     payload: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    seq: int = 0
 
     def describe(self) -> dict[str, Any]:
         return {
+            "seq": self.seq,
             "topic": self.topic,
             "name": self.name,
             "origin": self.origin,

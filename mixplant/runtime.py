@@ -16,7 +16,8 @@ from .decision.query import query_from_params, run_query
 from .decision.stateview import StateView
 from .decision.thresholds import ThresholdSet
 from .errors import NotFoundError
-from .event.bus import Event, EventBus
+from .event.bus import ALL, Event, EventBus
+from .event.durable import DurableEventBus
 from .event.subscribers import AlarmCollector, AuditSubscriber
 from .event.topics import ALARM, STORE
 from .ids import SequenceIds
@@ -82,7 +83,7 @@ class PlantRuntime:
         self.batches = BatchRegistry()
         self.engine = build_engine()
         self.gate = PreGate(self.engine)
-        self.bus = EventBus()
+        self.bus: EventBus = DurableEventBus(self.store, self.clock, self.ids)
         self.topology = default_topology()
         self.registry = build_registry(self.topology, EXTRA_DEVICES)
         self.audit_subscriber = AuditSubscriber(self.store)
@@ -133,9 +134,33 @@ class PlantRuntime:
         return cls(storage="memory")
 
     def _wire_bus(self) -> None:
-        self.bus.subscribe(ALARM, self.alarms)
-        self.bus.subscribe(ALARM, self.audit.handle_alarm)
-        self.bus.subscribe_all(self.audit_subscriber)
+        # Each subscriber is durable and independent: it owns its delivery
+        # cursor, so one failing cannot break the others or the event itself.
+        self.bus.register_durable("alarm.collector", ALARM, self.alarms)
+        self.bus.register_durable("alarm.ledger", ALARM, self.audit.handle_alarm)
+        self.bus.register_durable("audit.stream", ALL, self.audit_subscriber)
+
+    def _reload_subscribers(self) -> None:
+        """Rebuild subscriber idempotency state from the committed stream."""
+
+        self.bus.reload()
+
+    def replay_subscriptions(self, subscriber: str | None = None) -> dict[str, Any]:
+        """Catch subscribers up in the foreground and return the audit report."""
+
+        return self.bus.replay(subscriber)
+
+    def subscription_progress(self) -> dict[str, Any]:
+        """Expose per subscriber replay progress for the console."""
+
+        progress = self.bus.progress()
+        progress["policy"] = {
+            "mode": "foreground",
+            "background_replay": False,
+            "note": "missed deliveries stay in backlog until an explicit replay",
+        }
+        progress["runs"] = self.bus.replay_history()
+        return progress
 
     def bootstrap(self) -> dict[str, Any]:
         """Rebuild every derived artifact from the stored stream."""
@@ -146,6 +171,8 @@ class PlantRuntime:
         self._restore_id_counters()
         self._adopt_records()
         self._hydrate_machines()
+        self._reload_subscribers()
+        replay_report = self.subscription_progress()
         self.store.publish(
             BOOT_KIND,
             "console",
@@ -157,7 +184,12 @@ class PlantRuntime:
                 "rejected_snapshots": [dict(item) for item in report.rejected_snapshots],
             },
         )
-        return report.describe()
+        described = report.describe()
+        # Restart rebuilds cursors but never replays silently: any event a
+        # subscriber missed is reported as backlog for an explicit catch up.
+        described["subscription_backlog"] = replay_report["total_backlog"]
+        described["subscribers"] = replay_report["subscribers"]
+        return described
 
     def _restore_clock(self) -> int:
         """Continue the tick at the last one the stream recorded."""
@@ -245,6 +277,7 @@ class PlantRuntime:
         """Return the values a health probe needs."""
 
         peak = self.clock.now()
+        subscriptions = self.bus.progress()
         return {
             "status": "ok",
             "station": self.config.station,
@@ -253,6 +286,7 @@ class PlantRuntime:
             "visible": len(self.store.visible()),
             "batches": self.batches.count(),
             "alarms": self.alarms.count(),
+            "subscription_backlog": subscriptions["total_backlog"],
             "lines": {line: machine.phase for line, machine in self.machines.items()},
             "latched": {"sampler": self.sampler.latch.latched},
         }
@@ -261,7 +295,7 @@ class PlantRuntime:
         """Return the full console snapshot."""
 
         now = self.clock.now()
-        return compose_plant_status(
+        status = compose_plant_status(
             station=self.config.station,
             now=now,
             watermark=self.store.watermark().describe(),
@@ -286,6 +320,8 @@ class PlantRuntime:
             facts=self.view.facts(),
             config=self.config.describe(),
         )
+        status["subscriptions"] = self.subscription_progress()
+        return status
 
     def records(self, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Run the audit query the caller asked for."""
@@ -478,6 +514,9 @@ class PlantRuntime:
             ),
             "store.rollback": lambda payload: self.rollback(
                 integer(payload, "seq"), reason=optional_text(payload, "reason", "operator rollback")
+            ),
+            "subscription.replay": lambda payload: self.replay_subscriptions(
+                optional_text(payload, "subscriber", "") or None
             ),
             "clock.advance": lambda payload: {"tick": self.advance_ticks(integer(payload, "ticks"))},
         }

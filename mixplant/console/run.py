@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import handlers_alarms, handlers_batch, handlers_cycle, handlers_discharge, handlers_plant, handlers_recipe
+from . import (
+    handlers_alarms,
+    handlers_batch,
+    handlers_cycle,
+    handlers_discharge,
+    handlers_plant,
+    handlers_recipe,
+    handlers_subscriptions,
+)
 from .pages import PageStore
 from .router import Router
 from .server import ConsoleServer
@@ -16,6 +24,7 @@ BUILDERS = (
     handlers_cycle.register,
     handlers_discharge.register,
     handlers_alarms.register,
+    handlers_subscriptions.register,
 )
 
 

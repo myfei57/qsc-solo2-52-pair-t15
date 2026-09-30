@@ -25,6 +25,7 @@ class AuditService(PlantService):
         self.ledger = AuditLedger()
         self._alarms = alarms
         self._samples = 0
+        self._alarm_seqs: set[int] = set()
 
     def note(self, name: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
         """Write one named event to the ledger and the stream."""
@@ -41,11 +42,24 @@ class AuditService(PlantService):
         return self.note("sample.filed", {"batch_id": batch_id, "sample_id": sample_id})
 
     def handle_alarm(self, event: Event) -> None:
-        """Copy an alarm into the ledger so the shift report can list it."""
+        """Copy an alarm into the ledger so the shift report can list it.
 
+        Idempotent at the event sequence so a replay cannot list an alarm
+        twice.
+        """
+
+        if event.seq and event.seq in self._alarm_seqs:
+            return
         self.ledger.record(
             audit_entry(name=event.name, origin=event.origin, tick=event.tick, detail=dict(event.payload))
         )
+        if event.seq:
+            self._alarm_seqs.add(event.seq)
+
+    def adopt_delivered(self, sequences: frozenset[int]) -> None:
+        """Seed replay idempotency memory for the alarm ledger subscriber."""
+
+        self._alarm_seqs = set(sequences)
 
     def rollup(self) -> dict[str, Any]:
         """Write and return the current production roll-up."""
